@@ -2,6 +2,7 @@
   "name": "nemblo-hr",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@11.5.1",
   "description": "Internal HR and Administration Management System",
   "workspaces": [
     "client",
