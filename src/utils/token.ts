@@ -17,6 +17,7 @@ export async function generateAccessToken(
   return new SignJWT({
     username: payload.username,
     role: payload.role,
+    sessionId: payload.sessionId,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.userId)
