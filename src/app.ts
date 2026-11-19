@@ -7,7 +7,10 @@ import apiRoutes from "./routes/index.js";
 
 const app = express();
 
-const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+const allowedOrigins: string[] = [
+  "http://localhost:5173",
+  ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL] : []),
+];
 
 // Security middleware
 app.use(helmet());
@@ -15,7 +18,7 @@ app.use(helmet());
 // CORS configuration
 app.use(
   cors({
-    origin: clientUrl,
+    origin: allowedOrigins,
     credentials: true,
   }),
 );
