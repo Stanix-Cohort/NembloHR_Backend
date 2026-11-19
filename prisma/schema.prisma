@@ -3,7 +3,6 @@
 
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -12,7 +11,6 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
-
 
 // ENUMS
 
@@ -29,30 +27,29 @@ enum EmploymentStatus {
 // AUTHENTICATION
 
 model User {
-  id                 String   @id @default(cuid())
-  username           String   @unique
-  passwordHash       String
-  role               UserRole @default(EMPLOYEE)
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  role         UserRole @default(EMPLOYEE)
 
-  mustChangePassword Boolean  @default(false)
-  isActive           Boolean  @default(true)
+  mustChangePassword Boolean @default(false)
+  isActive           Boolean @default(true)
 
-  failedLoginAttempts Int     @default(0)
+  failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
   lastLoginAt         DateTime?
 
-  employee            Employee?
+  employee        Employee?
   refreshSessions RefreshSession[]
   auditLogs       AuditLog[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([role])
   @@index([isActive])
   @@map("users")
 }
-
 
 // EMPLOYEE MANAGEMENT
 
@@ -66,39 +63,37 @@ model Employee {
   employmentStatus EmploymentStatus @default(ACTIVE)
 
   // Authentication relationship
-  userId           String           @unique
-  user             User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   // Department relationship (optional)
-  departmentId     String?
-  department       Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([departmentId])
   @@index([employmentStatus])
   @@map("employees")
 }
 
-
 // DEPARTMENT MANAGEMENT
 
 model Department {
-  id          String     @id @default(cuid())
-  name        String     @unique
-  description String?
+  id             String  @id @default(cuid())
+  name           String
+  normalizedName String  @unique
+  description    String?
+  isActive       Boolean @default(true)
 
-  employees   Employee[]
+  employees Employee[]
 
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("departments")
 }
-
-
-
 
 model RefreshSession {
   id         String    @id @default(cuid())
@@ -116,7 +111,6 @@ model RefreshSession {
   @@index([expiresAt])
   @@map("refresh_sessions")
 }
-
 
 model AuditLog {
   id          String   @id @default(cuid())
