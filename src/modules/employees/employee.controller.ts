@@ -7,6 +7,7 @@ import {
   getMyEmployeeProfile,
   updateEmployee,
   updateEmployeeStatus,
+  resetEmployeePassword,
 } from "./employee.service.js";
 
 import {
@@ -110,104 +111,58 @@ export async function createEmployeeController(req: Request, res: Response) {
  *
  * Supports search, department filtering and status filtering.
  */
-export async function listEmployeesController(
-  req: Request,
-  res: Response,
-) {
+export async function listEmployeesController(req: Request, res: Response) {
   const validation = listEmployeesSchema.safeParse(req.query);
 
   if (!validation.success) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      null,
-      {
-        message: "Invalid employee directory filters.",
-        details: validation.error.issues,
-      },
-    );
+    return sendResponse(res, 400, false, null, {
+      message: "Invalid employee directory filters.",
+      details: validation.error.issues,
+    });
   }
 
   try {
     const employees = await listEmployees(validation.data);
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      employees,
-    );
+    return sendResponse(res, 200, true, employees);
   } catch (error) {
     console.error("List employees error:", error);
 
-    return sendResponse(
-      res,
-      500,
-      false,
-      null,
-      {
-        message: "Unable to retrieve employees.",
-      },
-    );
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to retrieve employees.",
+    });
   }
 }
 
 /**
  * Retrieves an individual employee by ID.
  */
-export async function getEmployeeByIdController(
-  req: Request,
-  res: Response,
-) {
+export async function getEmployeeByIdController(req: Request, res: Response) {
   const validation = employeeIdSchema.safeParse(req.params);
 
   if (!validation.success) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      null,
-      {
-        message: "Invalid employee ID.",
-        details: validation.error.issues,
-      },
-    );
+    return sendResponse(res, 400, false, null, {
+      message: "Invalid employee ID.",
+      details: validation.error.issues,
+    });
   }
 
   try {
     const employee = await getEmployeeById(validation.data.id);
 
     if (!employee) {
-      return sendResponse(
-        res,
-        404,
-        false,
-        null,
-        {
-          message: "Employee not found.",
-        },
-      );
+      return sendResponse(res, 404, false, null, {
+        message: "Employee not found.",
+      });
     }
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      employee,
-    );
+    return sendResponse(res, 200, true, employee);
   } catch (error) {
     console.error("Get employee error:", error);
 
-    return sendResponse(
-      res,
-      500,
-      false,
-      null,
-      {
-        message: "Unable to retrieve employee.",
-      },
-    );
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to retrieve employee.",
+    });
   }
 }
 
@@ -244,10 +199,7 @@ export async function getMyEmployeeProfileController(
  * Updates an employee's HR information.
  * PATCH /employees/:id
  */
-export async function updateEmployeeController(
-  req: Request,
-  res: Response,
-) {
+export async function updateEmployeeController(req: Request, res: Response) {
   const paramsValidation = employeeIdSchema.safeParse(req.params);
   const bodyValidation = updateEmployeeSchema.safeParse(req.body);
 
@@ -367,6 +319,55 @@ export async function updateEmployeeStatusController(
 
     return sendResponse(res, 500, false, null, {
       message: "Unable to update employee status.",
+    });
+  }
+}
+
+/**
+ * Resets an active employee's login password.
+ * POST /employees/:id/reset-password
+ */
+export async function resetEmployeePasswordController(
+  req: Request,
+  res: Response,
+) {
+  const validation = employeeIdSchema.safeParse(req.params);
+
+  if (!validation.success) {
+    return sendResponse(res, 400, false, null, {
+      message: "Invalid employee ID.",
+      details: validation.error.issues,
+    });
+  }
+
+  try {
+    const result = await resetEmployeePassword(validation.data.id);
+
+    return sendResponse(res, 200, true, result);
+  } catch (error) {
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "EMPLOYEE_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "Employee not found.",
+          });
+
+        case "EMPLOYEE_ACCOUNT_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "The employee's login account could not be found.",
+          });
+
+        case "EMPLOYEE_ACCOUNT_INACTIVE":
+          return sendResponse(res, 403, false, null, {
+            message: "Password reset is only available for active employees.",
+          });
+      }
+    }
+
+    console.error("Reset employee password error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to reset employee password.",
     });
   }
 }

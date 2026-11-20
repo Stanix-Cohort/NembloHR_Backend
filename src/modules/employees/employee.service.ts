@@ -544,3 +544,115 @@ export async function updateEmployeeStatus(
     },
   );
 }
+
+
+/**
+ * Resets an active employee's login password.
+ *
+ * Generates a secure temporary password, stores only its Argon2id hash,
+ * requires a password change at next login, and revokes all active sessions.
+ *
+ * The temporary password is returned once to the Admin.
+ */
+export async function resetEmployeePassword(id: string) {
+  // Generate and hash the temporary password before the transaction.
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashPassword(temporaryPassword);
+
+  return prisma.$transaction(
+    async (tx) => {
+      // Find the employee and associated authentication account.
+      const existingEmployee = await tx.employee.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          userId: true,
+        },
+      });
+
+      if (!existingEmployee) {
+        throw new Error("EMPLOYEE_NOT_FOUND");
+      }
+
+      // Coordinate the reset with login, password changes and status updates.
+      await acquireUserSessionLock(tx, existingEmployee.userId);
+
+      // Re-read the employee after acquiring the lock.
+      const employee = await tx.employee.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          fullName: true,
+          workEmail: true,
+          employmentStatus: true,
+          userId: true,
+        },
+      });
+
+      if (!employee) {
+        throw new Error("EMPLOYEE_NOT_FOUND");
+      }
+
+      // Verify that the associated account is an active employee account.
+      const user = await tx.user.findUnique({
+        where: { id: employee.userId },
+        select: {
+          id: true,
+          username: true,
+          role: true,
+          isActive: true,
+        },
+      });
+
+      if (!user || user.role !== "EMPLOYEE") {
+        throw new Error("EMPLOYEE_ACCOUNT_NOT_FOUND");
+      }
+
+      if (
+        employee.employmentStatus !== "ACTIVE" ||
+        !user.isActive
+      ) {
+        throw new Error("EMPLOYEE_ACCOUNT_INACTIVE");
+      }
+
+      // Update the password and require a change at the next login.
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          mustChangePassword: true,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      });
+
+      // Revoke every active refresh session.
+      await tx.refreshSession.updateMany({
+        where: {
+          userId: user.id,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+
+      // Return the temporary password once to the Admin.
+      return {
+        employee: {
+          id: employee.id,
+          fullName: employee.fullName,
+          workEmail: employee.workEmail,
+        },
+        credentials: {
+          username: user.username,
+          temporaryPassword,
+        },
+      };
+    },
+    {
+      maxWait: 10_000,
+      timeout: 10_000,
+    },
+  );
+}

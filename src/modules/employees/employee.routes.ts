@@ -7,6 +7,7 @@ import {
   getMyEmployeeProfileController,
   updateEmployeeController,
   updateEmployeeStatusController,
+  resetEmployeePasswordController,
 } from "./employee.controller.js";
 
 import {
@@ -35,5 +36,6 @@ router.get("/", listEmployeesController);
 router.get("/:id", getEmployeeByIdController);
 router.patch("/:id", updateEmployeeController);
 router.patch("/:id/status", updateEmployeeStatusController);
+router.post("/:id/reset-password", resetEmployeePasswordController);
 
 export default router;
