@@ -4,6 +4,8 @@ import {
   createEmployeeController,
   listEmployeesController,
   getEmployeeByIdController,
+  updateEmployeeController,
+  updateEmployeeStatusController,
 } from "./employee.controller.js";
 
 import { authenticate } from "../../middleware/auth.middleware.js";
@@ -17,5 +19,7 @@ router.use(authenticate, authorize("ADMIN"));
 router.post("/", createEmployeeController);
 router.get("/", listEmployeesController);
 router.get("/:id", getEmployeeByIdController);
+router.patch("/:id", updateEmployeeController);
+router.patch("/:id/status", updateEmployeeStatusController);
 
 export default router;

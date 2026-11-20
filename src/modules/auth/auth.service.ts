@@ -55,7 +55,9 @@ export async function login(input: LoginInput) {
         where: { id: initialUser.id },
       });
 
-      if (!user || !user.isActive) {
+      // Confirm the account still exists, is active,
+      // and still uses the submitted username.
+      if (!user || !user.isActive || user.username !== username) {
         return null;
       }
 

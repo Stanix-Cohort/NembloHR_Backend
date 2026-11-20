@@ -4,12 +4,16 @@ import {
   createEmployee,
   listEmployees,
   getEmployeeById,
+  updateEmployee,
+  updateEmployeeStatus,
 } from "./employee.service.js";
 
 import {
   createEmployeeSchema,
   listEmployeesSchema,
   employeeIdSchema,
+  updateEmployeeSchema,
+  updateEmployeeStatusSchema,
 } from "./employee.validation.js";
 /**
  * Sends a consistent API response.
@@ -203,5 +207,136 @@ export async function getEmployeeByIdController(
         message: "Unable to retrieve employee.",
       },
     );
+  }
+}
+
+/**
+ * Updates an employee's HR information.
+ * PATCH /employees/:id
+ */
+export async function updateEmployeeController(
+  req: Request,
+  res: Response,
+) {
+  const paramsValidation = employeeIdSchema.safeParse(req.params);
+  const bodyValidation = updateEmployeeSchema.safeParse(req.body);
+
+  if (!paramsValidation.success) {
+    return sendResponse(res, 400, false, null, {
+      message: "Invalid employee ID.",
+      details: paramsValidation.error.issues,
+    });
+  }
+
+  if (!bodyValidation.success) {
+    return sendResponse(res, 400, false, null, {
+      message: "Invalid employee information.",
+      details: bodyValidation.error.issues,
+    });
+  }
+
+  try {
+    const employee = await updateEmployee(
+      paramsValidation.data.id,
+      bodyValidation.data,
+    );
+
+    return sendResponse(res, 200, true, employee);
+  } catch (error) {
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "EMPLOYEE_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "Employee not found.",
+          });
+
+        case "DEPARTMENT_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "The selected department does not exist.",
+          });
+
+        case "DEPARTMENT_INACTIVE":
+          return sendResponse(res, 400, false, null, {
+            message: "Employees can only be assigned to active departments.",
+          });
+
+        case "EMPLOYEE_EMAIL_EXISTS":
+          return sendResponse(res, 409, false, null, {
+            message: "Another employee is already using this work email.",
+          });
+
+        case "USERNAME_EXISTS":
+          return sendResponse(res, 409, false, null, {
+            message: "A user account with this work email already exists.",
+          });
+      }
+    }
+
+    if (isUniqueConstraintError(error)) {
+      return sendResponse(res, 409, false, null, {
+        message: "An account with these details already exists.",
+      });
+    }
+
+    console.error("Update employee error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to update employee.",
+    });
+  }
+}
+
+/**
+ * Activates or deactivates an employee account.
+ * PATCH /employees/:id/status
+ */
+export async function updateEmployeeStatusController(
+  req: Request,
+  res: Response,
+) {
+  const paramsValidation = employeeIdSchema.safeParse(req.params);
+  const bodyValidation = updateEmployeeStatusSchema.safeParse(req.body);
+
+  if (!paramsValidation.success) {
+    return sendResponse(res, 400, false, null, {
+      message: "Invalid employee ID.",
+      details: paramsValidation.error.issues,
+    });
+  }
+
+  if (!bodyValidation.success) {
+    return sendResponse(res, 400, false, null, {
+      message: "Invalid employee status.",
+      details: bodyValidation.error.issues,
+    });
+  }
+
+  try {
+    const employee = await updateEmployeeStatus(
+      paramsValidation.data.id,
+      bodyValidation.data,
+    );
+
+    return sendResponse(res, 200, true, employee);
+  } catch (error) {
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "EMPLOYEE_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "Employee not found.",
+          });
+
+        case "EMPLOYEE_ACCOUNT_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "The employee's login account could not be found.",
+          });
+      }
+    }
+
+    console.error("Update employee status error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to update employee status.",
+    });
   }
 }

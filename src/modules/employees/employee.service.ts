@@ -1,11 +1,13 @@
 import { randomInt } from "node:crypto";
-
+import { acquireUserSessionLock } from "../auth/session-lock.js";
 import { prisma } from "../../database/prisma.js";
 import { hashPassword } from "../../utils/password.js";
 
 import type {
   CreateEmployeeInput,
   ListEmployeesInput,
+  UpdateEmployeeInput,
+  UpdateEmployeeStatusInput,
 } from "./employee.validation.js";
 
 /**
@@ -270,4 +272,247 @@ export async function getEmployeeById(id: string) {
       updatedAt: true,
     },
   });
+}
+
+
+/**
+ * Updates an employee's HR profile.
+ *
+ * Only supplied fields are updated.
+ * If the work email changes, the associated User username
+ * is updated within the same transaction.
+ */
+export async function updateEmployee(
+  id: string,
+  input: UpdateEmployeeInput,
+) {
+  return prisma.$transaction(async (tx) => {
+    // Find the employee and their associated authentication account.
+    const existingEmployee = await tx.employee.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+      },
+    });
+
+    if (!existingEmployee) {
+      throw new Error("EMPLOYEE_NOT_FOUND");
+    }
+
+    // Validate a newly selected department.
+    if (input.departmentId !== undefined) {
+      const department = await tx.department.findUnique({
+        where: {
+          id: input.departmentId,
+        },
+        select: {
+          id: true,
+          isActive: true,
+        },
+      });
+
+      if (!department) {
+        throw new Error("DEPARTMENT_NOT_FOUND");
+      }
+
+      if (!department.isActive) {
+        throw new Error("DEPARTMENT_INACTIVE");
+      }
+    }
+
+    // Check whether the new work email belongs to another employee.
+    if (input.workEmail !== undefined) {
+      const existingEmployeeWithEmail =
+        await tx.employee.findUnique({
+          where: {
+            workEmail: input.workEmail,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+      if (
+        existingEmployeeWithEmail &&
+        existingEmployeeWithEmail.id !== id
+      ) {
+        throw new Error("EMPLOYEE_EMAIL_EXISTS");
+      }
+
+      // The work email also serves as the login username.
+      const existingUserWithUsername = await tx.user.findUnique({
+        where: {
+          username: input.workEmail,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (
+        existingUserWithUsername &&
+        existingUserWithUsername.id !== existingEmployee.userId
+      ) {
+        throw new Error("USERNAME_EXISTS");
+      }
+
+      // Keep the authentication username synchronised.
+      await tx.user.update({
+        where: {
+          id: existingEmployee.userId,
+        },
+        data: {
+          username: input.workEmail,
+        },
+      });
+    }
+
+    // Build an update containing only the supplied fields.
+    const updateData = {
+      ...(input.fullName !== undefined && {
+        fullName: input.fullName,
+      }),
+
+      ...(input.workEmail !== undefined && {
+        workEmail: input.workEmail,
+      }),
+
+      ...(input.phone !== undefined && {
+        phone: input.phone,
+      }),
+
+      ...(input.jobTitle !== undefined && {
+        jobTitle: input.jobTitle,
+      }),
+
+      ...(input.startDate !== undefined && {
+        startDate: new Date(`${input.startDate}T00:00:00.000Z`),
+      }),
+
+      ...(input.departmentId !== undefined && {
+        departmentId: input.departmentId,
+      }),
+    };
+
+    return tx.employee.update({
+      where: {
+        id,
+      },
+      data: updateData,
+      select: {
+        id: true,
+        fullName: true,
+        workEmail: true,
+        phone: true,
+        jobTitle: true,
+        startDate: true,
+        employmentStatus: true,
+        departmentId: true,
+        department: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  });
+}
+
+/**
+ * Activates or deactivates an employee account.
+ *
+ * Keeps Employee.employmentStatus and User.isActive synchronised.
+ * Deactivation also revokes all active refresh sessions.
+ */
+export async function updateEmployeeStatus(
+  id: string,
+  input: UpdateEmployeeStatusInput,
+) {
+  return prisma.$transaction(
+    async (tx) => {
+      // Find the employee and associated user account.
+      const existingEmployee = await tx.employee.findUnique({
+        where: {
+          id,
+        },
+        select: {
+          id: true,
+          userId: true,
+        },
+      });
+
+      if (!existingEmployee) {
+        throw new Error("EMPLOYEE_NOT_FOUND");
+      }
+
+      // Coordinate status changes with login and password operations.
+      await acquireUserSessionLock(tx, existingEmployee.userId);
+
+      // Re-read the user after acquiring the lock.
+      const user = await tx.user.findUnique({
+        where: {
+          id: existingEmployee.userId,
+        },
+        select: {
+          id: true,
+          role: true,
+        },
+      });
+
+      if (!user || user.role !== "EMPLOYEE") {
+        throw new Error("EMPLOYEE_ACCOUNT_NOT_FOUND");
+      }
+
+      const isActive = input.employmentStatus === "ACTIVE";
+
+      // Synchronise the HR and authentication account statuses.
+      const employee = await tx.employee.update({
+        where: {
+          id,
+        },
+        data: {
+          employmentStatus: input.employmentStatus,
+        },
+        select: {
+          id: true,
+          fullName: true,
+          workEmail: true,
+          employmentStatus: true,
+          updatedAt: true,
+        },
+      });
+
+      await tx.user.update({
+        where: {
+          id: user.id,
+        },
+        data: {
+          isActive,
+        },
+      });
+
+      // Revoke every active refresh session when deactivating.
+      if (!isActive) {
+        await tx.refreshSession.updateMany({
+          where: {
+            userId: user.id,
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: new Date(),
+          },
+        });
+      }
+
+      return employee;
+    },
+    {
+      maxWait: 10_000,
+      timeout: 10_000,
+    },
+  );
 }
