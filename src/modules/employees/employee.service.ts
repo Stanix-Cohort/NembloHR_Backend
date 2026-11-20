@@ -274,6 +274,41 @@ export async function getEmployeeById(id: string) {
   });
 }
 
+/**
+ * Retrieves the authenticated employee's own profile.
+ *
+ * Uses the authenticated User ID rather than an employee ID
+ * supplied through the request.
+ *
+ * Returns null when no employee profile exists.
+ */
+export async function getMyEmployeeProfile(userId: string) {
+  return prisma.employee.findUnique({
+    where: {
+      userId,
+    },
+    select: {
+      id: true,
+      fullName: true,
+      workEmail: true,
+      phone: true,
+      jobTitle: true,
+      startDate: true,
+      employmentStatus: true,
+      departmentId: true,
+
+      department: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+}
 
 /**
  * Updates an employee's HR profile.
@@ -282,10 +317,7 @@ export async function getEmployeeById(id: string) {
  * If the work email changes, the associated User username
  * is updated within the same transaction.
  */
-export async function updateEmployee(
-  id: string,
-  input: UpdateEmployeeInput,
-) {
+export async function updateEmployee(id: string, input: UpdateEmployeeInput) {
   return prisma.$transaction(async (tx) => {
     // Find the employee and their associated authentication account.
     const existingEmployee = await tx.employee.findUnique({
@@ -323,20 +355,16 @@ export async function updateEmployee(
 
     // Check whether the new work email belongs to another employee.
     if (input.workEmail !== undefined) {
-      const existingEmployeeWithEmail =
-        await tx.employee.findUnique({
-          where: {
-            workEmail: input.workEmail,
-          },
-          select: {
-            id: true,
-          },
-        });
+      const existingEmployeeWithEmail = await tx.employee.findUnique({
+        where: {
+          workEmail: input.workEmail,
+        },
+        select: {
+          id: true,
+        },
+      });
 
-      if (
-        existingEmployeeWithEmail &&
-        existingEmployeeWithEmail.id !== id
-      ) {
+      if (existingEmployeeWithEmail && existingEmployeeWithEmail.id !== id) {
         throw new Error("EMPLOYEE_EMAIL_EXISTS");
       }
 

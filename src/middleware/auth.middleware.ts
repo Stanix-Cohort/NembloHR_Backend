@@ -153,3 +153,44 @@ export async function authenticate(
     });
   }
 }
+
+/**
+ * Ensures users complete their mandatory password change
+ * before accessing protected application resources.
+ */
+export function requirePasswordChangeComplete(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user) {
+    res.status(401).json({
+      success: false,
+      data: null,
+      error: {
+        message: "Authentication is required to access this resource.",
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    });
+    return;
+  }
+
+  if (req.user.mustChangePassword) {
+    res.status(403).json({
+      success: false,
+      data: null,
+      error: {
+        message: "You must change your temporary password before accessing this resource.",
+        code: "PASSWORD_CHANGE_REQUIRED",
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    });
+    return;
+  }
+
+  next();
+}

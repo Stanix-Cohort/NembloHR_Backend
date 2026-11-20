@@ -4,14 +4,28 @@ import {
   createEmployeeController,
   listEmployeesController,
   getEmployeeByIdController,
+  getMyEmployeeProfileController,
   updateEmployeeController,
   updateEmployeeStatusController,
 } from "./employee.controller.js";
 
-import { authenticate } from "../../middleware/auth.middleware.js";
+import {
+  authenticate,
+  requirePasswordChangeComplete,
+} from "../../middleware/auth.middleware.js";
+
 import { authorize } from "../../middleware/authorize.middleware.js";
 
 const router = Router();
+
+// Employee self-service: retrieve the authenticated employee's own profile.
+router.get(
+  "/me/profile",
+  authenticate,
+  authorize("EMPLOYEE"),
+  requirePasswordChangeComplete,
+  getMyEmployeeProfileController,
+);
 
 // All employee-management endpoints require an authenticated Admin.
 router.use(authenticate, authorize("ADMIN"));

@@ -4,6 +4,7 @@ import {
   createEmployee,
   listEmployees,
   getEmployeeById,
+  getMyEmployeeProfile,
   updateEmployee,
   updateEmployeeStatus,
 } from "./employee.service.js";
@@ -207,6 +208,35 @@ export async function getEmployeeByIdController(
         message: "Unable to retrieve employee.",
       },
     );
+  }
+}
+
+export async function getMyEmployeeProfileController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    if (!req.user) {
+      return sendResponse(res, 401, false, null, {
+        message: "Authentication required.",
+      });
+    }
+
+    const employee = await getMyEmployeeProfile(req.user.id);
+
+    if (!employee) {
+      return sendResponse(res, 404, false, null, {
+        message: "Employee profile not found.",
+      });
+    }
+
+    return sendResponse(res, 200, true, employee);
+  } catch (error) {
+    console.error("Get my employee profile error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Failed to retrieve employee profile.",
+    });
   }
 }
 
