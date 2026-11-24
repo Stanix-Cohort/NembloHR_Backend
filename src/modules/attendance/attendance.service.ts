@@ -7,7 +7,6 @@ import type {
   AttendanceSettingsInput,
 } from "./attendance.validation.js";
 
-
 /**
  * Retrieves the attendance settings for this company.
  *
@@ -38,9 +37,7 @@ export async function getAttendanceSettings() {
  * A fixed ID ensures one settings record per
  * company deployment.
  */
-export async function upsertAttendanceSettings(
-  input: AttendanceSettingsInput,
-) {
+export async function upsertAttendanceSettings(input: AttendanceSettingsInput) {
   return prisma.attendanceSettings.upsert({
     where: {
       id: "default",
@@ -75,7 +72,6 @@ export async function upsertAttendanceSettings(
     },
   });
 }
-
 
 /**
  * Converts a date-only string (YYYY-MM-DD) to UTC midnight.
@@ -142,6 +138,8 @@ export async function createAttendance(
         id: true,
         date: true,
         status: true,
+        earlyArrival: true,
+        earlyDeparture: true,
         checkInAt: true,
         checkOutAt: true,
         notes: true,
@@ -242,6 +240,8 @@ export async function listAttendance(filters: ListAttendanceInput) {
       id: true,
       date: true,
       status: true,
+      earlyArrival: true,
+      earlyDeparture: true,
       checkInAt: true,
       checkOutAt: true,
       notes: true,
@@ -286,6 +286,8 @@ export async function getAttendanceById(id: string) {
       id: true,
       date: true,
       status: true,
+      earlyArrival: true,
+      earlyDeparture: true,
       checkInAt: true,
       checkOutAt: true,
       notes: true,
@@ -420,6 +422,8 @@ export async function updateAttendance(
       id: true,
       date: true,
       status: true,
+      earlyArrival: true,
+      earlyDeparture: true,
       checkInAt: true,
       checkOutAt: true,
       notes: true,
@@ -449,14 +453,12 @@ export async function updateAttendance(
   });
 }
 
-
 /**
- * Gets today's date in the company's timezone.
- * Attendance dates are based on Africa/Lagos, not the server timezone.
+ * Gets the current attendance date in the company's timezone.
  */
-function getNigeriaAttendanceDate(): Date {
+function getAttendanceDate(timezone: string): Date {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Lagos",
+    timeZone: timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -474,18 +476,58 @@ function getNigeriaAttendanceDate(): Date {
 }
 
 /**
- * Employee clock-in.
+ * Gets a timestamp's local time in the supplied timezone as HH:mm.
+ */
+function getLocalTime(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
+/**
+ * Converts HH:mm into minutes after midnight.
+ */
+function timeToMinutes(time: string): number {
+  const [hoursPart, minutesPart] = time.split(":");
+
+  if (hoursPart === undefined || minutesPart === undefined) {
+    throw new Error("INVALID_TIME_FORMAT");
+  }
+
+  const hours = Number(hoursPart);
+  const minutes = Number(minutesPart);
+
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    throw new Error("INVALID_TIME_FORMAT");
+  }
+
+  return hours * 60 + minutes;
+}
+
+/**
+ * Employee clock-in using the company's configured attendance policy.
  *
  * - Identifies the employee through their authenticated user ID.
  * - Rejects inactive employees.
- * - Allows only one attendance record per employee per day.
- * - Uses the server's current timestamp.
+ * - Requires an attendance policy to be configured.
+ * - Rejects clock-in on non-working days.
+ * - Classifies late arrival using the configured grace period.
+ * - Records the policy used for this attendance entry.
+ * - Allows only one attendance record per employee per date.
  */
 export async function clockInEmployee(userId: string) {
   const employee = await prisma.employee.findUnique({
-    where: {
-      userId,
-    },
+    where: { userId },
     select: {
       id: true,
       employmentStatus: true,
@@ -500,23 +542,92 @@ export async function clockInEmployee(userId: string) {
     throw new Error("EMPLOYEE_INACTIVE");
   }
 
-  const date = getNigeriaAttendanceDate();
+  const openAttendance = await prisma.attendance.findFirst({
+    where: {
+      employeeId: employee.id,
+      checkInAt: {
+        not: null,
+      },
+      checkOutAt: null,
+    },
+    select: {
+      id: true,
+      date: true,
+    },
+  });
+
+  if (openAttendance) {
+    throw new Error("ATTENDANCE_SESSION_STILL_OPEN");
+  }
+
+  const settings = await getAttendanceSettings();
+
+  if (
+    !settings ||
+    !settings.resumptionTime ||
+    !settings.closingTime ||
+    settings.workingDays.length === 0
+  ) {
+    throw new Error("ATTENDANCE_POLICY_NOT_CONFIGURED");
+  }
+
   const checkInAt = new Date();
+  const date = getAttendanceDate(settings.timezone);
+
+  const currentWeekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: settings.timezone,
+    weekday: "long",
+  })
+    .format(checkInAt)
+    .toUpperCase();
+
+  if (!settings.workingDays.includes(currentWeekday)) {
+    throw new Error("NON_WORKING_DAY");
+  }
+
+  const localCheckInTime = getLocalTime(checkInAt, settings.timezone);
+
+  const resumptionMinutes = timeToMinutes(settings.resumptionTime);
+
+  const checkInMinutes = timeToMinutes(localCheckInTime);
+
+  const latestAllowedMinutes = resumptionMinutes + settings.gracePeriodMinutes;
+
+  const earlyArrival = checkInMinutes < resumptionMinutes;
+
+  const status = checkInMinutes > latestAllowedMinutes ? "LATE" : "PRESENT";
 
   return prisma.attendance.create({
     data: {
       employeeId: employee.id,
       date,
-      status: "PRESENT",
+      status,
       checkInAt,
       recordedById: userId,
+
+      earlyArrival,
+      earlyDeparture: false,
+
+      policyResumptionTime: settings.resumptionTime,
+      policyClosingTime: settings.closingTime,
+      policyGracePeriodMinutes: settings.gracePeriodMinutes,
+      policyTimezone: settings.timezone,
+      policyWorkingDays: settings.workingDays,
     },
+
     select: {
       id: true,
       date: true,
       status: true,
       checkInAt: true,
       checkOutAt: true,
+      earlyArrival: true,
+      earlyDeparture: true,
+      policyResumptionTime: true,
+      policyClosingTime: true,
+      policyGracePeriodMinutes: true,
+      policyTimezone: true,
+      policyWorkingDays: true,
       createdAt: true,
     },
   });
@@ -549,19 +660,30 @@ export async function clockOutEmployee(userId: string) {
     throw new Error("EMPLOYEE_INACTIVE");
   }
 
-  const date = getNigeriaAttendanceDate();
+  const settings = await getAttendanceSettings();
 
-  const attendance = await prisma.attendance.findUnique({
+  if (!settings) {
+    throw new Error("ATTENDANCE_POLICY_NOT_CONFIGURED");
+  }
+
+  const attendance = await prisma.attendance.findFirst({
     where: {
-      employeeId_date: {
-        employeeId: employee.id,
-        date,
+      employeeId: employee.id,
+      checkInAt: {
+        not: null,
       },
+      checkOutAt: null,
+    },
+    orderBy: {
+      date: "desc",
     },
     select: {
       id: true,
+      date: true,
       checkInAt: true,
       checkOutAt: true,
+      policyClosingTime: true,
+      policyTimezone: true,
     },
   });
 
@@ -578,6 +700,18 @@ export async function clockOutEmployee(userId: string) {
   }
 
   const checkOutAt = new Date();
+  const closingTime = attendance.policyClosingTime ?? settings.closingTime;
+
+  const attendanceTimezone = attendance.policyTimezone ?? settings.timezone;
+
+  if (!closingTime) {
+    throw new Error("ATTENDANCE_POLICY_NOT_CONFIGURED");
+  }
+
+  const localCheckOutTime = getLocalTime(checkOutAt, attendanceTimezone);
+
+  const earlyDeparture =
+    timeToMinutes(localCheckOutTime) < timeToMinutes(closingTime);
 
   // Conditional update prevents concurrent requests from
   // overwriting an existing clock-out timestamp.
@@ -588,6 +722,7 @@ export async function clockOutEmployee(userId: string) {
     },
     data: {
       checkOutAt,
+      earlyDeparture,
     },
   });
 
@@ -606,10 +741,11 @@ export async function clockOutEmployee(userId: string) {
       checkInAt: true,
       checkOutAt: true,
       updatedAt: true,
+      earlyArrival: true,
+      earlyDeparture: true,
     },
   });
 }
-
 
 /**
  * Calculates the time worked from check-in to check-out.
@@ -628,8 +764,7 @@ function calculateWorkingDuration(
     };
   }
 
-  const difference =
-    checkOutAt.getTime() - checkInAt.getTime();
+  const difference = checkOutAt.getTime() - checkInAt.getTime();
 
   if (difference < 0) {
     return {
@@ -668,14 +803,24 @@ export async function getMyTodayAttendance(userId: string) {
     throw new Error("EMPLOYEE_INACTIVE");
   }
 
-  const date = getNigeriaAttendanceDate();
+  const settings = await getAttendanceSettings();
 
-  const attendance = await prisma.attendance.findUnique({
+  if (!settings) {
+    throw new Error("ATTENDANCE_POLICY_NOT_CONFIGURED");
+  }
+
+  const date = getAttendanceDate(settings.timezone);
+
+  const openAttendance = await prisma.attendance.findFirst({
     where: {
-      employeeId_date: {
-        employeeId: employee.id,
-        date,
+      employeeId: employee.id,
+      checkInAt: {
+        not: null,
       },
+      checkOutAt: null,
+    },
+    orderBy: {
+      date: "desc",
     },
     select: {
       id: true,
@@ -684,21 +829,42 @@ export async function getMyTodayAttendance(userId: string) {
       checkInAt: true,
       checkOutAt: true,
       notes: true,
+      earlyArrival: true,
+      earlyDeparture: true,
       createdAt: true,
       updatedAt: true,
     },
   });
 
+  const attendance =
+    openAttendance ??
+    (await prisma.attendance.findUnique({
+      where: {
+        employeeId_date: {
+          employeeId: employee.id,
+          date,
+        },
+      },
+      select: {
+        id: true,
+        date: true,
+        status: true,
+        checkInAt: true,
+        checkOutAt: true,
+        notes: true,
+        earlyArrival: true,
+        earlyDeparture: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }));
   if (!attendance) {
     return null;
   }
 
   return {
     ...attendance,
-    ...calculateWorkingDuration(
-      attendance.checkInAt,
-      attendance.checkOutAt,
-    ),
+    ...calculateWorkingDuration(attendance.checkInAt, attendance.checkOutAt),
   };
 }
 
@@ -743,6 +909,8 @@ export async function getMyAttendanceHistory(userId: string) {
       checkInAt: true,
       checkOutAt: true,
       notes: true,
+      earlyArrival: true,
+      earlyDeparture: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -750,9 +918,6 @@ export async function getMyAttendanceHistory(userId: string) {
 
   return attendanceRecords.map((attendance) => ({
     ...attendance,
-    ...calculateWorkingDuration(
-      attendance.checkInAt,
-      attendance.checkOutAt,
-    ),
+    ...calculateWorkingDuration(attendance.checkInAt, attendance.checkOutAt),
   }));
 }

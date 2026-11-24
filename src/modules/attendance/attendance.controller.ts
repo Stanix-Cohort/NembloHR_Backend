@@ -236,15 +236,11 @@ export async function updateAttendanceController(req: Request, res: Response) {
   }
 }
 
-
 /**
  * Allows an authenticated employee to clock in.
  * POST /attendance/clock-in
  */
-export async function clockInEmployeeController(
-  req: Request,
-  res: Response,
-) {
+export async function clockInEmployeeController(req: Request, res: Response) {
   try {
     const userId = req.user?.id;
 
@@ -268,6 +264,24 @@ export async function clockInEmployeeController(
         case "EMPLOYEE_INACTIVE":
           return sendResponse(res, 403, false, null, {
             message: "Inactive employees cannot record attendance.",
+          });
+
+        case "ATTENDANCE_SESSION_STILL_OPEN":
+          return sendResponse(res, 409, false, null, {
+            message:
+              "You still have an open attendance session. Please clock out before starting another session.",
+          });
+
+        case "ATTENDANCE_POLICY_NOT_CONFIGURED":
+          return sendResponse(res, 409, false, null, {
+            message:
+              "The company's attendance policy has not been configured. Please contact your administrator.",
+          });
+
+        case "NON_WORKING_DAY":
+          return sendResponse(res, 403, false, null, {
+            message:
+              "Today is not a configured working day. You cannot clock in.",
           });
 
         case "UNABLE_TO_DETERMINE_ATTENDANCE_DATE":
@@ -295,10 +309,7 @@ export async function clockInEmployeeController(
  * Allows an authenticated employee to clock out.
  * PATCH /attendance/clock-out
  */
-export async function clockOutEmployeeController(
-  req: Request,
-  res: Response,
-) {
+export async function clockOutEmployeeController(req: Request, res: Response) {
   try {
     const userId = req.user?.id;
 
@@ -326,7 +337,8 @@ export async function clockOutEmployeeController(
 
         case "ATTENDANCE_NOT_FOUND":
           return sendResponse(res, 404, false, null, {
-            message: "No attendance record was found for today. Please clock in first.",
+            message:
+              "No attendance record was found for today. Please clock in first.",
           });
 
         case "CLOCK_IN_REQUIRED":
@@ -343,6 +355,12 @@ export async function clockOutEmployeeController(
           return sendResponse(res, 500, false, null, {
             message: "Unable to determine the attendance date.",
           });
+
+        case "ATTENDANCE_POLICY_NOT_CONFIGURED":
+          return sendResponse(res, 409, false, null, {
+            message:
+              "The company's attendance policy is not configured. Please contact your administrator.",
+          });
       }
     }
 
@@ -353,7 +371,6 @@ export async function clockOutEmployeeController(
     });
   }
 }
-
 
 /**
  * Retrieves today's attendance for the authenticated employee.
@@ -386,6 +403,12 @@ export async function getMyTodayAttendanceController(
         case "EMPLOYEE_INACTIVE":
           return sendResponse(res, 403, false, null, {
             message: "Inactive employees cannot access attendance records.",
+          });
+
+        case "ATTENDANCE_POLICY_NOT_CONFIGURED":
+          return sendResponse(res, 409, false, null, {
+            message:
+              "The company's attendance policy has not been configured. Please contact your administrator.",
           });
 
         case "UNABLE_TO_DETERMINE_ATTENDANCE_DATE":
@@ -450,7 +473,6 @@ export async function getMyAttendanceHistoryController(
     });
   }
 }
-
 
 /**
  * Retrieves the company's attendance policy settings.
