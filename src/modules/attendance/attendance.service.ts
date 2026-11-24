@@ -4,7 +4,78 @@ import type {
   CreateAttendanceInput,
   ListAttendanceInput,
   UpdateAttendanceInput,
+  AttendanceSettingsInput,
 } from "./attendance.validation.js";
+
+
+/**
+ * Retrieves the attendance settings for this company.
+ *
+ * Returns null if the company has not configured its
+ * attendance policy yet.
+ */
+export async function getAttendanceSettings() {
+  return prisma.attendanceSettings.findUnique({
+    where: {
+      id: "default",
+    },
+    select: {
+      id: true,
+      resumptionTime: true,
+      closingTime: true,
+      gracePeriodMinutes: true,
+      timezone: true,
+      workingDays: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+}
+
+/**
+ * Creates or updates the attendance settings.
+ *
+ * A fixed ID ensures one settings record per
+ * company deployment.
+ */
+export async function upsertAttendanceSettings(
+  input: AttendanceSettingsInput,
+) {
+  return prisma.attendanceSettings.upsert({
+    where: {
+      id: "default",
+    },
+
+    create: {
+      id: "default",
+      resumptionTime: input.resumptionTime,
+      closingTime: input.closingTime,
+      gracePeriodMinutes: input.gracePeriodMinutes,
+      timezone: input.timezone,
+      workingDays: input.workingDays,
+    },
+
+    update: {
+      resumptionTime: input.resumptionTime,
+      closingTime: input.closingTime,
+      gracePeriodMinutes: input.gracePeriodMinutes,
+      timezone: input.timezone,
+      workingDays: input.workingDays,
+    },
+
+    select: {
+      id: true,
+      resumptionTime: true,
+      closingTime: true,
+      gracePeriodMinutes: true,
+      timezone: true,
+      workingDays: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+}
+
 
 /**
  * Converts a date-only string (YYYY-MM-DD) to UTC midnight.

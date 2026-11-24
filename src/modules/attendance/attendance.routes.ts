@@ -16,6 +16,8 @@ import {
   clockOutEmployeeController,
   getMyTodayAttendanceController,
   getMyAttendanceHistoryController,
+  getAttendanceSettingsController,
+  upsertAttendanceSettingsController,
 } from "./attendance.controller.js";
 
 const router = Router();
@@ -75,6 +77,10 @@ router.post("/", createAttendanceController);
 
 // Retrieve attendance records with optional filters.
 router.get("/", listAttendanceController);
+
+// Admin attendance policy settings
+router.get("/settings", getAttendanceSettingsController);
+router.put("/settings", upsertAttendanceSettingsController);
 
 // Retrieve one attendance record.
 router.get("/:id", getAttendanceByIdController);

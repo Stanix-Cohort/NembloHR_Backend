@@ -9,6 +9,8 @@ import {
   clockOutEmployee,
   getMyTodayAttendance,
   getMyAttendanceHistory,
+  getAttendanceSettings,
+  upsertAttendanceSettings,
 } from "./attendance.service.js";
 
 import {
@@ -16,6 +18,7 @@ import {
   listAttendanceSchema,
   attendanceIdSchema,
   updateAttendanceSchema,
+  attendanceSettingsSchema,
 } from "./attendance.validation.js";
 
 /**
@@ -444,6 +447,58 @@ export async function getMyAttendanceHistoryController(
 
     return sendResponse(res, 500, false, null, {
       message: "Unable to retrieve attendance history.",
+    });
+  }
+}
+
+
+/**
+ * Retrieves the company's attendance policy settings.
+ * GET /attendance/settings
+ */
+export async function getAttendanceSettingsController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const settings = await getAttendanceSettings();
+
+    return sendResponse(res, 200, true, settings);
+  } catch (error) {
+    console.error("Get attendance settings error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to retrieve attendance settings.",
+    });
+  }
+}
+
+/**
+ * Creates or updates the company's attendance policy settings.
+ * PUT /attendance/settings
+ */
+export async function upsertAttendanceSettingsController(
+  req: Request,
+  res: Response,
+) {
+  const validation = attendanceSettingsSchema.safeParse(req.body);
+
+  if (!validation.success) {
+    return sendResponse(res, 400, false, null, {
+      message: "Invalid attendance settings.",
+      details: validation.error.issues,
+    });
+  }
+
+  try {
+    const settings = await upsertAttendanceSettings(validation.data);
+
+    return sendResponse(res, 200, true, settings);
+  } catch (error) {
+    console.error("Save attendance settings error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to save attendance settings.",
     });
   }
 }

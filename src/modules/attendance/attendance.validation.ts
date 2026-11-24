@@ -158,3 +158,59 @@ export const updateAttendanceSchema = z
   );
 
 export type UpdateAttendanceInput = z.infer<typeof updateAttendanceSchema>;
+
+
+const workingDayValues = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+] as const;
+
+const timeSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Time must be in HH:mm format.");
+
+const timezoneSchema = z.string().refine((timezone) => {
+  try {
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+}, "A valid IANA timezone is required.");
+
+export const attendanceSettingsSchema = z
+  .object({
+    resumptionTime: timeSchema,
+
+    closingTime: timeSchema,
+
+    gracePeriodMinutes: z
+      .number()
+      .int("Grace period must be a whole number.")
+      .min(0, "Grace period cannot be negative.")
+      .default(0),
+
+    timezone: timezoneSchema,
+
+    workingDays: z
+      .array(z.enum(workingDayValues))
+      .min(1, "Select at least one working day.")
+      .refine(
+        (days) => new Set(days).size === days.length,
+        "Working days must not contain duplicates.",
+      ),
+  })
+  .refine((settings) => settings.closingTime > settings.resumptionTime, {
+    message: "Closing time must be later than resumption time.",
+    path: ["closingTime"],
+  });
+
+export type AttendanceSettingsInput = z.infer<typeof attendanceSettingsSchema>;

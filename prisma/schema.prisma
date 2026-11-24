@@ -34,13 +34,13 @@ enum AttendanceStatus {
 // AUTHENTICATION
 
 model User {
-  id           String   @id @default(cuid())
-  username     String   @unique
-  passwordHash String
-  role         UserRole @default(EMPLOYEE)
+  id                 String       @id @default(cuid())
+  username           String       @unique
+  passwordHash       String
+  role               UserRole     @default(EMPLOYEE)
   recordedAttendance Attendance[] @relation("AttendanceRecordedBy")
-  mustChangePassword Boolean @default(false)
-  isActive           Boolean @default(true)
+  mustChangePassword Boolean      @default(false)
+  isActive           Boolean      @default(true)
 
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
@@ -61,13 +61,13 @@ model User {
 // EMPLOYEE MANAGEMENT
 
 model Employee {
-  id               String           @id @default(cuid())
-  fullName         String
-  workEmail        String           @unique
-  phone            String?
-  jobTitle         String
-  startDate        DateTime         @db.Date
-  employmentStatus EmploymentStatus @default(ACTIVE)
+  id                String           @id @default(cuid())
+  fullName          String
+  workEmail         String           @unique
+  phone             String?
+  jobTitle          String
+  startDate         DateTime         @db.Date
+  employmentStatus  EmploymentStatus @default(ACTIVE)
   attendanceRecords Attendance[]
 
   // Authentication relationship
@@ -139,26 +139,48 @@ model AuditLog {
 }
 
 model Attendance {
-  id         String           @id @default(cuid())
+  id         String   @id @default(cuid())
   employeeId String
-  employee   Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
-  date       DateTime         @db.Date
-  status     AttendanceStatus
+  date   DateTime         @db.Date
+  status AttendanceStatus
 
   checkInAt  DateTime?
   checkOutAt DateTime?
   notes      String?
 
   recordedById String
-  recordedBy   User @relation("AttendanceRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  recordedBy   User   @relation("AttendanceRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  earlyArrival   Boolean @default(false)
+  earlyDeparture Boolean @default(false)
+
+  policyResumptionTime     String?
+  policyClosingTime        String?
+  policyGracePeriodMinutes Int?
+  policyTimezone           String?
+  policyWorkingDays        String[] @default([])
 
   @@unique([employeeId, date])
   @@index([date])
   @@index([status, date])
   @@index([recordedById])
   @@map("attendance")
+}
+
+model AttendanceSettings {
+  id                 String   @id @default("default")
+  resumptionTime     String?
+  closingTime        String?
+  gracePeriodMinutes Int      @default(0)
+  timezone           String   @default("Africa/Lagos")
+  workingDays        String[] @default([])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("attendance_settings")
 }
