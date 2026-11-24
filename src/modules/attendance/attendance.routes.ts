@@ -1,6 +1,10 @@
 import { Router } from "express";
 
-import { authenticate } from "../../middleware/auth.middleware.js";
+import {
+  authenticate,
+  requirePasswordChangeComplete,
+} from "../../middleware/auth.middleware.js";
+
 import { authorize } from "../../middleware/authorize.middleware.js";
 
 import {
@@ -8,11 +12,62 @@ import {
   listAttendanceController,
   getAttendanceByIdController,
   updateAttendanceController,
+  clockInEmployeeController,
+  clockOutEmployeeController,
+  getMyTodayAttendanceController,
+  getMyAttendanceHistoryController,
 } from "./attendance.controller.js";
 
 const router = Router();
 
-// All attendance endpoints require Admin authentication.
+/**
+ * EMPLOYEE SELF-SERVICE ATTENDANCE
+ *
+ * These routes must come before the Admin-only middleware.
+ */
+
+// Employee clock-in.
+router.post(
+  "/clock-in",
+  authenticate,
+  authorize("EMPLOYEE"),
+  requirePasswordChangeComplete,
+  clockInEmployeeController,
+);
+
+// Employee clock-out.
+router.patch(
+  "/clock-out",
+  authenticate,
+  authorize("EMPLOYEE"),
+  requirePasswordChangeComplete,
+  clockOutEmployeeController,
+);
+
+// Retrieve today's attendance.
+router.get(
+  "/me/today",
+  authenticate,
+  authorize("EMPLOYEE"),
+  requirePasswordChangeComplete,
+  getMyTodayAttendanceController,
+);
+
+// Retrieve personal attendance history.
+router.get(
+  "/me",
+  authenticate,
+  authorize("EMPLOYEE"),
+  requirePasswordChangeComplete,
+  getMyAttendanceHistoryController,
+);
+
+/**
+ * ADMIN ATTENDANCE MANAGEMENT
+ *
+ * All routes below require Admin authentication.
+ */
+
 router.use(authenticate, authorize("ADMIN"));
 
 // Create an attendance record.

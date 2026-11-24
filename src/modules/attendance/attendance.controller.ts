@@ -5,6 +5,10 @@ import {
   listAttendance,
   getAttendanceById,
   updateAttendance,
+  clockInEmployee,
+  clockOutEmployee,
+  getMyTodayAttendance,
+  getMyAttendanceHistory,
 } from "./attendance.service.js";
 
 import {
@@ -225,6 +229,221 @@ export async function updateAttendanceController(req: Request, res: Response) {
 
     return sendResponse(res, 500, false, null, {
       message: "Unable to update attendance record.",
+    });
+  }
+}
+
+
+/**
+ * Allows an authenticated employee to clock in.
+ * POST /attendance/clock-in
+ */
+export async function clockInEmployeeController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return sendResponse(res, 401, false, null, {
+        message: "Authentication is required to clock in.",
+      });
+    }
+
+    const attendance = await clockInEmployee(userId);
+
+    return sendResponse(res, 201, true, attendance);
+  } catch (error) {
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "EMPLOYEE_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "Employee account not found.",
+          });
+
+        case "EMPLOYEE_INACTIVE":
+          return sendResponse(res, 403, false, null, {
+            message: "Inactive employees cannot record attendance.",
+          });
+
+        case "UNABLE_TO_DETERMINE_ATTENDANCE_DATE":
+          return sendResponse(res, 500, false, null, {
+            message: "Unable to determine the attendance date.",
+          });
+      }
+    }
+
+    if (isUniqueConstraintError(error)) {
+      return sendResponse(res, 409, false, null, {
+        message: "You have already clocked in for today.",
+      });
+    }
+
+    console.error("Employee clock-in error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to record employee clock-in.",
+    });
+  }
+}
+
+/**
+ * Allows an authenticated employee to clock out.
+ * PATCH /attendance/clock-out
+ */
+export async function clockOutEmployeeController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return sendResponse(res, 401, false, null, {
+        message: "Authentication is required to clock out.",
+      });
+    }
+
+    const attendance = await clockOutEmployee(userId);
+
+    return sendResponse(res, 200, true, attendance);
+  } catch (error) {
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "EMPLOYEE_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "Employee account not found.",
+          });
+
+        case "EMPLOYEE_INACTIVE":
+          return sendResponse(res, 403, false, null, {
+            message: "Inactive employees cannot record attendance.",
+          });
+
+        case "ATTENDANCE_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "No attendance record was found for today. Please clock in first.",
+          });
+
+        case "CLOCK_IN_REQUIRED":
+          return sendResponse(res, 400, false, null, {
+            message: "You must clock in before clocking out.",
+          });
+
+        case "ALREADY_CLOCKED_OUT":
+          return sendResponse(res, 409, false, null, {
+            message: "You have already clocked out for today.",
+          });
+
+        case "UNABLE_TO_DETERMINE_ATTENDANCE_DATE":
+          return sendResponse(res, 500, false, null, {
+            message: "Unable to determine the attendance date.",
+          });
+      }
+    }
+
+    console.error("Employee clock-out error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to record employee clock-out.",
+    });
+  }
+}
+
+
+/**
+ * Retrieves today's attendance for the authenticated employee.
+ * GET /attendance/me/today
+ */
+export async function getMyTodayAttendanceController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return sendResponse(res, 401, false, null, {
+        message: "Authentication is required to retrieve attendance.",
+      });
+    }
+
+    const attendance = await getMyTodayAttendance(userId);
+
+    return sendResponse(res, 200, true, attendance);
+  } catch (error) {
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "EMPLOYEE_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "Employee account not found.",
+          });
+
+        case "EMPLOYEE_INACTIVE":
+          return sendResponse(res, 403, false, null, {
+            message: "Inactive employees cannot access attendance records.",
+          });
+
+        case "UNABLE_TO_DETERMINE_ATTENDANCE_DATE":
+          return sendResponse(res, 500, false, null, {
+            message: "Unable to determine the attendance date.",
+          });
+      }
+    }
+
+    console.error("Get today's employee attendance error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to retrieve today's attendance.",
+    });
+  }
+}
+
+/**
+ * Retrieves attendance history for the authenticated employee.
+ * GET /attendance/me
+ */
+export async function getMyAttendanceHistoryController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return sendResponse(res, 401, false, null, {
+        message: "Authentication is required to retrieve attendance history.",
+      });
+    }
+
+    const attendanceRecords = await getMyAttendanceHistory(userId);
+
+    return sendResponse(res, 200, true, attendanceRecords);
+  } catch (error) {
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "EMPLOYEE_NOT_FOUND":
+          return sendResponse(res, 404, false, null, {
+            message: "Employee account not found.",
+          });
+
+        case "EMPLOYEE_INACTIVE":
+          return sendResponse(res, 403, false, null, {
+            message: "Inactive employees cannot access attendance records.",
+          });
+
+        case "UNABLE_TO_DETERMINE_ATTENDANCE_DATE":
+          return sendResponse(res, 500, false, null, {
+            message: "Unable to determine the attendance date.",
+          });
+      }
+    }
+
+    console.error("Get employee attendance history error:", error);
+
+    return sendResponse(res, 500, false, null, {
+      message: "Unable to retrieve attendance history.",
     });
   }
 }
