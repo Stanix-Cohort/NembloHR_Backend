@@ -31,6 +31,22 @@ enum AttendanceStatus {
   HALF_DAY
 }
 
+enum AssetStatus {
+  AVAILABLE
+  ASSIGNED
+  UNDER_REPAIR
+  LOST
+  RETIRED
+}
+
+enum AssetCondition {
+  NEW
+  GOOD
+  FAIR
+  POOR
+  DAMAGED
+}
+
 // AUTHENTICATION
 
 model User {
@@ -50,6 +66,9 @@ model User {
   refreshSessions RefreshSession[]
   auditLogs       AuditLog[]
 
+  assetAssignmentsCreated  AssetAssignment[] @relation("AssetAssignedBy")
+  assetAssignmentsReturned AssetAssignment[] @relation("AssetReturnedBy")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -61,14 +80,16 @@ model User {
 // EMPLOYEE MANAGEMENT
 
 model Employee {
-  id                String           @id @default(cuid())
+  id                String            @id @default(cuid())
   fullName          String
-  workEmail         String           @unique
+  workEmail         String            @unique
   phone             String?
   jobTitle          String
-  startDate         DateTime         @db.Date
-  employmentStatus  EmploymentStatus @default(ACTIVE)
+  startDate         DateTime          @db.Date
+  employmentStatus  EmploymentStatus  @default(ACTIVE)
   attendanceRecords Attendance[]
+  assetAssignments  AssetAssignment[]
+  assetFeedback     AssetFeedback[]
 
   // Authentication relationship
   userId String @unique
@@ -183,4 +204,83 @@ model AttendanceSettings {
   updatedAt          DateTime @updatedAt
 
   @@map("attendance_settings")
+}
+
+// ASSET MANAGEMENT
+
+model Asset {
+  id           String         @id @default(cuid())
+  assetId      String         @unique
+  name         String
+  type         String
+  serialNumber String?
+  condition    AssetCondition @default(GOOD)
+  status       AssetStatus    @default(AVAILABLE)
+  description  String?
+
+  // Optional Cloudinary references
+  imageUrl      String?
+  imagePublicId String?
+  fileUrl       String?
+  filePublicId  String?
+
+  assignments AssetAssignment[]
+  feedback    AssetFeedback[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@map("assets")
+}
+
+model AssetAssignment {
+  id         String @id @default(cuid())
+  assetId    String
+  employeeId String
+
+  asset    Asset    @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  assignedAt DateTime  @default(now())
+  returnedAt DateTime?
+
+  assignedById String
+  assignedBy   User   @relation("AssetAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  returnedById String?
+  returnedBy   User?   @relation("AssetReturnedBy", fields: [returnedById], references: [id], onDelete: Restrict)
+
+  feedback AssetFeedback[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([id, assetId, employeeId])
+  @@index([assetId])
+  @@index([employeeId])
+  @@index([assignedAt])
+  @@map("asset_assignments")
+}
+
+model AssetFeedback {
+  id           String @id @default(cuid())
+  assetId      String
+  assignmentId String
+  employeeId   String
+
+  asset      Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  assignment AssetAssignment @relation(fields: [assignmentId, assetId, employeeId], references: [id, assetId, employeeId], onDelete: Restrict)
+  employee   Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  condition AssetCondition
+  comment   String
+
+  createdAt DateTime @default(now())
+
+  @@index([assetId, createdAt])
+  @@index([assignmentId])
+  @@index([employeeId])
+  @@map("asset_feedback")
 }
