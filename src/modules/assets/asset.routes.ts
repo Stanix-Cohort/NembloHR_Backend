@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { uploadAssetFiles } from "../../middleware/asset-upload.middleware.js";
 
 import {
   authenticate,
@@ -53,7 +54,7 @@ router.post(
 router.use(authenticate, authorize("ADMIN"), requirePasswordChangeComplete);
 
 // Register a new asset.
-router.post("/", createAssetController);
+router.post("/", uploadAssetFiles, createAssetController);
 
 // Retrieve registered assets with optional filters.
 router.get("/", listAssetsController);
@@ -71,6 +72,6 @@ router.patch("/:id/return", returnAssetController);
 router.get("/:id", getAssetByIdController);
 
 // Update asset details, condition or permitted status.
-router.patch("/:id", updateAssetController);
+router.patch("/:id", uploadAssetFiles, updateAssetController);
 
 export default router;

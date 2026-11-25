@@ -9,13 +9,27 @@ import type {
   ListAssetFeedbackInput,
 } from "./asset.validation.js";
 
+export type AssetUploadData = {
+  image?: {
+    url: string;
+    publicId: string;
+  };
+  file?: {
+    url: string;
+    publicId: string;
+  };
+};
+
 /**
  * Registers a new asset.
  *
  * Asset IDs are unique at database level.
  * Image and file uploads are optional and handled separately.
  */
-export async function createAsset(input: CreateAssetInput) {
+export async function createAsset(
+  input: CreateAssetInput,
+  uploads?: AssetUploadData,
+) {
   return prisma.asset.create({
     data: {
       assetId: input.assetId,
@@ -24,6 +38,10 @@ export async function createAsset(input: CreateAssetInput) {
       serialNumber: input.serialNumber?.trim() || null,
       condition: input.condition,
       description: input.description?.trim() || null,
+      imageUrl: uploads?.image?.url ?? null,
+      imagePublicId: uploads?.image?.publicId ?? null,
+      fileUrl: uploads?.file?.url ?? null,
+      filePublicId: uploads?.file?.publicId ?? null,
     },
 
     select: {
@@ -242,16 +260,21 @@ export async function getAssetById(id: string) {
  * Assignment and return status transitions must use their
  * dedicated operations to preserve assignment history.
  */
-export async function updateAsset(id: string, input: UpdateAssetInput) {
+export async function updateAsset(
+  id: string,
+  input: UpdateAssetInput,
+  uploads?: AssetUploadData,
+) {
   return prisma.$transaction(async (tx) => {
     const existingAsset = await tx.asset.findUnique({
       where: { id },
       select: {
         id: true,
         status: true,
+        imagePublicId: true,
+        filePublicId: true,
       },
     });
-
     if (!existingAsset) {
       throw new Error("ASSET_NOT_FOUND");
     }
@@ -264,7 +287,7 @@ export async function updateAsset(id: string, input: UpdateAssetInput) {
       throw new Error("ASSET_MUST_BE_RETURNED_FIRST");
     }
 
-    return tx.asset.update({
+    const updatedAsset = await tx.asset.update({
       where: { id },
 
       data: {
@@ -281,6 +304,15 @@ export async function updateAsset(id: string, input: UpdateAssetInput) {
         }),
         ...(input.status !== undefined && {
           status: input.status,
+        }),
+        ...(uploads?.image && {
+          imageUrl: uploads.image.url,
+          imagePublicId: uploads.image.publicId,
+        }),
+
+        ...(uploads?.file && {
+          fileUrl: uploads.file.url,
+          filePublicId: uploads.file.publicId,
         }),
       },
 
@@ -299,6 +331,15 @@ export async function updateAsset(id: string, input: UpdateAssetInput) {
         updatedAt: true,
       },
     });
+
+    return {
+      asset: updatedAsset,
+      previousUploads: {
+        imagePublicId: uploads?.image ? existingAsset.imagePublicId : null,
+
+        filePublicId: uploads?.file ? existingAsset.filePublicId : null,
+      },
+    };
   });
 }
 

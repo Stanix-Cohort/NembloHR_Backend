@@ -22,6 +22,13 @@ import {
   listAssetFeedbackSchema,
 } from "./asset.validation.js";
 
+import {
+  uploadAssetToCloudinary,
+  deleteAssetFromCloudinary,
+} from "../../utils/cloudinary-upload.js";
+
+import type { AssetUploadData } from "./asset.service.js";
+
 /**
  * Sends a consistent API response.
  */
@@ -55,9 +62,76 @@ function isUniqueConstraintError(error: unknown): boolean {
 }
 
 /**
+ * Deletes successfully uploaded files if a later operation fails.
+ */
+async function cleanupAssetUploads(uploads: AssetUploadData) {
+  const cleanupTasks = [];
+
+  if (uploads.image) {
+    cleanupTasks.push(
+      deleteAssetFromCloudinary(uploads.image.publicId, "image"),
+    );
+  }
+
+  if (uploads.file) {
+    cleanupTasks.push(
+      deleteAssetFromCloudinary(uploads.file.publicId, "raw"),
+    );
+  }
+
+  const results = await Promise.allSettled(cleanupTasks);
+
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      console.error("Cloudinary cleanup error:", result.reason);
+    }
+  });
+}
+
+/**
+ * Uploads optional asset files to Cloudinary.
+ */
+async function uploadRequestAssetFiles(
+  req: Request,
+): Promise<AssetUploadData> {
+  const files = req.files as
+    | Record<string, Express.Multer.File[]>
+    | undefined;
+
+  const uploads: AssetUploadData = {};
+
+  try {
+    const image = files?.image?.[0];
+    const file = files?.file?.[0];
+
+    if (image) {
+      uploads.image = await uploadAssetToCloudinary(image, "image");
+    }
+
+    if (file) {
+      uploads.file = await uploadAssetToCloudinary(file, "raw");
+    }
+
+    return uploads;
+  } catch (error) {
+    await cleanupAssetUploads(uploads);
+
+    if (
+      error instanceof Error &&
+      error.message === "CLOUDINARY_NOT_CONFIGURED"
+    ) {
+      throw error;
+    }
+
+    throw new Error("CLOUDINARY_UPLOAD_FAILED");
+  }
+}
+
+/**
  * Registers a new asset.
  * POST /assets
  */
+
 export async function createAssetController(req: Request, res: Response) {
   const validation = createAssetSchema.safeParse(req.body);
 
@@ -68,11 +142,35 @@ export async function createAssetController(req: Request, res: Response) {
     });
   }
 
+  let uploads: AssetUploadData = {};
+
   try {
-    const asset = await createAsset(validation.data);
+    // Upload optional image and supporting document.
+    uploads = await uploadRequestAssetFiles(req);
+
+    // Save asset details and Cloudinary references.
+    const asset = await createAsset(validation.data, uploads);
 
     return sendResponse(res, 201, true, asset);
   } catch (error) {
+    // Remove uploaded files if asset registration fails.
+    await cleanupAssetUploads(uploads);
+
+    if (error instanceof Error) {
+      if (error.message === "CLOUDINARY_NOT_CONFIGURED") {
+        return sendResponse(res, 503, false, null, {
+          message:
+            "Cloudinary is not configured. Unable to upload asset files.",
+        });
+      }
+
+      if (error.message === "CLOUDINARY_UPLOAD_FAILED") {
+        return sendResponse(res, 502, false, null, {
+          message: "Unable to upload asset files. Please try again.",
+        });
+      }
+    }
+
     if (isUniqueConstraintError(error)) {
       return sendResponse(res, 409, false, null, {
         message: "An asset with this Asset ID already exists.",
@@ -86,6 +184,7 @@ export async function createAssetController(req: Request, res: Response) {
     });
   }
 }
+
 
 /**
  * Retrieves registered assets.
@@ -151,6 +250,7 @@ export async function getAssetByIdController(req: Request, res: Response) {
  * Updates asset details, condition or permitted status.
  * PATCH /assets/:id
  */
+
 export async function updateAssetController(req: Request, res: Response) {
   const paramsValidation = assetIdSchema.safeParse(req.params);
 
@@ -170,16 +270,84 @@ export async function updateAssetController(req: Request, res: Response) {
     });
   }
 
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+
+  const hasUploads = Boolean(files?.image?.length || files?.file?.length);
+
+  // Require at least one text field or uploaded file.
+  if (Object.keys(bodyValidation.data).length === 0 && !hasUploads) {
+    return sendResponse(res, 400, false, null, {
+      message:
+        "Provide at least one asset field, image or supporting document to update.",
+    });
+  }
+
+  let uploads: AssetUploadData = {};
+
   try {
-    const asset = await updateAsset(
+    // Upload only the files supplied in this request.
+    uploads = await uploadRequestAssetFiles(req);
+
+    // Update asset details and uploaded file references.
+    const updateResult = await updateAsset(
       paramsValidation.data.id,
       bodyValidation.data,
+      uploads,
     );
 
-    return sendResponse(res, 200, true, asset);
+    // Remove replaced files only after the database update succeeds.
+    const oldFileCleanupTasks: Promise<void>[] = [];
+
+    if (
+      updateResult.previousUploads.imagePublicId &&
+      updateResult.previousUploads.imagePublicId !== uploads.image?.publicId
+    ) {
+      oldFileCleanupTasks.push(
+        deleteAssetFromCloudinary(
+          updateResult.previousUploads.imagePublicId,
+          "image",
+        ),
+      );
+    }
+
+    if (
+      updateResult.previousUploads.filePublicId &&
+      updateResult.previousUploads.filePublicId !== uploads.file?.publicId
+    ) {
+      oldFileCleanupTasks.push(
+        deleteAssetFromCloudinary(
+          updateResult.previousUploads.filePublicId,
+          "raw",
+        ),
+      );
+    }
+
+    const cleanupResults = await Promise.allSettled(oldFileCleanupTasks);
+
+    cleanupResults.forEach((result) => {
+      if (result.status === "rejected") {
+        console.error("Replaced Cloudinary file cleanup error:", result.reason);
+      }
+    });
+
+    return sendResponse(res, 200, true, updateResult.asset);
   } catch (error) {
+    // Remove newly uploaded files if the update fails.
+    await cleanupAssetUploads(uploads);
+
     if (error instanceof Error) {
       switch (error.message) {
+        case "CLOUDINARY_NOT_CONFIGURED":
+          return sendResponse(res, 503, false, null, {
+            message:
+              "Cloudinary is not configured. Unable to upload asset files.",
+          });
+
+        case "CLOUDINARY_UPLOAD_FAILED":
+          return sendResponse(res, 502, false, null, {
+            message: "Unable to upload asset files. Please try again.",
+          });
+
         case "ASSET_NOT_FOUND":
           return sendResponse(res, 404, false, null, {
             message: "Asset not found.",
@@ -205,6 +373,7 @@ export async function updateAssetController(req: Request, res: Response) {
     });
   }
 }
+
 
 
 /**

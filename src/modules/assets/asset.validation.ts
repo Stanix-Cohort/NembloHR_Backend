@@ -60,24 +60,19 @@ export type CreateAssetInput = z.infer<typeof createAssetSchema>;
 
 // UPDATE ASSET
 
-export const updateAssetSchema = z
-  .object({
-    name: z.string().trim().min(1).max(150).optional(),
+export const updateAssetSchema = z.object({
+  name: z.string().trim().min(1).max(150).optional(),
 
-    type: z.string().trim().min(1).max(100).optional(),
+  type: z.string().trim().min(1).max(100).optional(),
 
-    serialNumber: z.string().trim().max(150).nullable().optional(),
+  serialNumber: z.string().trim().max(150).nullable().optional(),
 
-    condition: z.enum(assetConditions).optional(),
+  condition: z.enum(assetConditions).optional(),
 
-    description: z.string().trim().max(2000).nullable().optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
 
-    status: z.enum(assetStatuses).optional(),
-  })
-  .refine(
-    (data) => Object.keys(data).length > 0,
-    "At least one field must be provided for an update.",
-  );
+  status: z.enum(assetStatuses).optional(),
+});
 
 export type UpdateAssetInput = z.infer<typeof updateAssetSchema>;
 
