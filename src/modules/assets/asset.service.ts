@@ -70,6 +70,7 @@ export async function createAsset(
  * - Asset status.
  * - Asset condition.
  */
+
 export async function listAssets(filters: ListAssetsInput) {
   const { search, type, status = "all", condition = "all" } = filters;
 
@@ -134,6 +135,27 @@ export async function listAssets(filters: ListAssetsInput) {
       description: true,
       imageUrl: true,
       fileUrl: true,
+
+      // Latest active assignment and assigned employee
+      assignments: {
+        where: {
+          returnedAt: null,
+        },
+        orderBy: {
+          assignedAt: "desc",
+        },
+        take: 1,
+        select: {
+          employee: {
+            select: {
+              id: true,
+              fullName: true,
+              workEmail: true,
+            },
+          },
+        },
+      },
+
       feedback: {
         orderBy: {
           createdAt: "desc",
@@ -144,22 +166,27 @@ export async function listAssets(filters: ListAssetsInput) {
           createdAt: true,
         },
       },
+
       createdAt: true,
       updatedAt: true,
     },
   });
 
- return assets.map(({ feedback, ...asset }) => {
-   const latestFeedback = feedback[0] ?? null;
+  return assets.map(({ feedback, assignments, ...asset }) => {
+    const latestFeedback = feedback[0] ?? null;
 
-   return {
-     ...asset,
-     hasReportedIssue:
-       latestFeedback?.condition === "POOR" ||
-       latestFeedback?.condition === "DAMAGED",
-     latestFeedback,
-   };
- });
+    return {
+      ...asset,
+
+      assignedTo: assignments[0]?.employee ?? null,
+
+      hasReportedIssue:
+        latestFeedback?.condition === "POOR" ||
+        latestFeedback?.condition === "DAMAGED",
+
+      latestFeedback,
+    };
+  });
 }
 
 /**
